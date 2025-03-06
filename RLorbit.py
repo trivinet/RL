@@ -5,6 +5,31 @@ from scipy.integrate import solve_ivp
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 import matplotlib.pyplot as plt
+from astropy.coordinates import CartesianRepresentation
+from astropy import units as u
+from poliastro.bodies import Earth
+from poliastro.twobody import Orbit
+from poliastro.constants import GM_earth
+
+def kepler_to_cartesian(a, e, i, omega, Omega, nu):
+    """
+    Converts Keplerian elements to Cartesian coordinates.
+    """
+    # Convert degrees to radians for inclination, omega, and Omega
+    i = np.radians(i)
+    omega = np.radians(omega)
+    Omega = np.radians(Omega)
+    nu = np.radians(nu)
+
+    # Create orbit object
+    orb = Orbit.from_classical(Earth, a * u.km, e * u.one, i * u.rad, Omega * u.rad, omega * u.rad, nu * u.rad)
+
+    # Extract Cartesian coordinates
+    x, y, z = orb.r.to_value(u.km)  # Position (km)
+    vx, vy, vz = orb.v.to_value(u.km / u.s)  # Velocity (km/s)
+
+    return np.array([x, y, z, vx, vy, vz])
+
 
 class OrbitalEnv(gym.Env):
     def __init__(self):
@@ -20,6 +45,8 @@ class OrbitalEnv(gym.Env):
         self.target_orbit = np.array([7000, 0.01, 0, 0, 0, 0])  # Example: target circular orbit at 7000 km
 
         self.trajectory = []  # Initialize trajectory list
+        self.actions_list = []
+        self.orbital_elements_along_time = []
 
         # Initialize state
         self.state = self.reset()[0]  # Ensure reset returns (state, info)
@@ -31,14 +58,16 @@ class OrbitalEnv(gym.Env):
         self.state = self.orbital_dynamics(self.state, action)
         reward = self.compute_reward(self.state, action)
         done = self.check_termination(self.state)
+        self.actions_list.append(action)
         truncated = False  # Gymnasium requires truncated flag
+        self.orbital_elements_along_time.append()
         info = {}
 
         return self.state, reward, done, truncated, info
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        
+
         a = np.random.uniform(6800, 7200)  # Semi-major axis (km)
         e = np.random.uniform(0, 0.1)  # Eccentricity
         i = np.random.uniform(0, 10)  # Inclination (degrees)
@@ -46,7 +75,8 @@ class OrbitalEnv(gym.Env):
         Omega = np.random.uniform(0, 360)  # Longitude of ascending node
         nu = np.random.uniform(0, 360)  # True anomaly
 
-        self.state = np.array([a, e, i, omega, Omega, nu])
+        # Convert Keplerian to Cartesian
+        self.state = kepler_to_cartesian(a, e, i, omega, Omega, nu)
 
         return self.state, {}  # Return (state, info)
 
@@ -75,22 +105,73 @@ class OrbitalEnv(gym.Env):
 
     def render(self):
         """
-        Render the orbit (simplified 2D visualization).
+        Render the simulation with:
+        - Plot 1: Actions (Δvx, Δvy, Δvz) vs Time
+        - Plot 2: 3D Trajectory (x, y, z)
+        - Plot 3: Semi-Major Axis & Eccentricity vs Time
         """
-        if not hasattr(self, 'trajectory'):
+
+        if not hasattr(self, 'time_steps'):
+            self.time_steps = []
+            self.actions_list = []
             self.trajectory = []
+            self.orbital_elements = []
 
-        self.trajectory.append(self.state[:2])  # Store (x, y) positions
+        # Append current data
+        self.time_steps.append(len(self.time_steps))  # Time step counter
+        self.trajectory.append(self.state[:3])  # (x, y, z)
+        self.orbital_elements.append([self.state[0], self.state[1]])  # (a, e)
+        
+        if hasattr(self, 'last_action'):
+            self.actions_list.append(self.last_action)
+        else:
+            self.actions_list.append([0, 0, 0])  # Default if no action applied yet
 
-        if len(self.trajectory) > 1:
-            x, y = zip(*self.trajectory)
-            plt.figure(figsize=(6,6))
-            plt.plot(x, y, label="Orbit Path")
-            plt.scatter(0, 0, color='yellow', marker='o', label="Earth")
-            plt.xlabel("x (km)")
-            plt.ylabel("y (km)")
-            plt.legend()
-            plt.show()
+        fig = plt.figure(figsize=(12, 6))
+
+        # ---- Plot 1: Actions vs Time ----
+        ax1 = fig.add_subplot(131)
+        time_array = np.array(self.time_steps)
+        actions_array = np.array(self.actions_list)
+
+        ax1.plot(time_array, actions_array[:, 0], label="Δvx", color='r')
+        ax1.plot(time_array, actions_array[:, 1], label="Δvy", color='g')
+        ax1.plot(time_array, actions_array[:, 2], label="Δvz", color='b')
+
+        ax1.set_xlabel("Time Step")
+        ax1.set_ylabel("Action (Δv in km/s)")
+        ax1.set_title("Actions vs Time")
+        ax1.legend()
+        ax1.grid()
+
+        # ---- Plot 2: 3D Trajectory ----
+        ax2 = fig.add_subplot(132, projection='3d')
+        traj_array = np.array(self.trajectory)
+        
+        ax2.plot(traj_array[:, 0], traj_array[:, 1], traj_array[:, 2], label="Orbit Path")
+        ax2.scatter(0, 0, 0, color='yellow', marker='o', label="Earth")  # Earth at origin
+
+        ax2.set_xlabel("X (km)")
+        ax2.set_ylabel("Y (km)")
+        ax2.set_zlabel("Z (km)")
+        ax2.set_title("3D Trajectory")
+        ax2.legend()
+
+        # ---- Plot 3: Semi-Major Axis & Eccentricity vs Time ----
+        ax3 = fig.add_subplot(133)
+        orbital_array = np.array(self.orbital_elements)
+
+        ax3.plot(time_array, orbital_array[:, 0], label="Semi-Major Axis (a)", color='purple')
+        ax3.plot(time_array, orbital_array[:, 1], label="Eccentricity (e)", color='orange')
+
+        ax3.set_xlabel("Time Step")
+        ax3.set_ylabel("Orbital Parameters")
+        ax3.set_title("Semi-Major Axis & Eccentricity vs Time")
+        ax3.legend()
+        ax3.grid()
+
+        plt.tight_layout()
+        plt.show()
 
 
     def orbital_dynamics(self, state, action, dt=10):
@@ -131,9 +212,11 @@ model.save("orbital_policy")
 
 model = PPO.load("orbital_policy")
 
-obs = env.reset()
+obs, _ = env.reset()
 for _ in range(100):
     action, _ = model.predict(obs)
     obs, reward, done, truncated, _ = env.step(action)
     if done:
         break
+
+env.render()
