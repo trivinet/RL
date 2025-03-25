@@ -14,7 +14,7 @@ class OrbitalEnv(gym.Env):
         self.mu = 398600.4418  # km^3/s^2, Earth's gravitational parameter
         self.T_max = 0.00001     # km/s^2, max thrust acceleration
         self.mass_initial = 500.0  # kg
-        self.dt = 100.0         # seconds per step
+        self.dt = 60.0         # seconds per step
 
         self.use_rk = False  # Toggle RK integration
 
@@ -25,13 +25,13 @@ class OrbitalEnv(gym.Env):
         self.action_space = spaces.Box(low=-1, high=1, shape=(4,), dtype=np.float32)
 
         # Target orbit for reward
-        self.goal = np.array([7500, 0.02, 0.0, 0.0, 0.0])  # [a, e, i, raan, argp]
+        self.goal = np.array([7500, 0.02, 51*np.pi/180, 314*np.pi/180, 0.0])  # [a, e, i, raan, argp]
 
         self.state = None  # [a, e, i, raan, argp, v, m]
         self.trajectory = []
 
     def reset(self):
-        self.state = np.array([7000, 0.01, 0, 0.0, 0.0, 0.0, self.mass_initial])
+        self.state = np.array([7000, 0.01, 51*np.pi/180, 314*np.pi/180, 0.0, 0.0, self.mass_initial])
         self.trajectory = [self.state.copy()]
         return self._get_obs()
 
@@ -188,7 +188,7 @@ class OrbitalEnv(gym.Env):
 env = OrbitalEnv()
 env.use_rk = False  # or True
 
-obs = env.reset()
+""" obs = env.reset()
 
 for _ in range(500):  # 500 steps (~1.4 hours)
     # Try: zero input (coast)
@@ -202,13 +202,13 @@ for _ in range(500):  # 500 steps (~1.4 hours)
         break
 
 env.plot_trajectory()
-env.plot_xyz_trajectory()
+env.plot_xyz_trajectory() """
 
 obs = env.reset()
 
-for _ in range(math.ceil(20*24*60*60/env.dt)):  # 500 steps (~1.4 hours)
+for _ in range(math.ceil(2*24*60*60/env.dt)):
     # Try: zero input (coast)
-    action = np.array([0.0, 1.0, 0.0, 0.2])
+    action = np.array([0.0, 0.0, -1.0, 1])
     
     # Or random thrust
     # action = env.action_space.sample()
