@@ -220,3 +220,22 @@ for _ in range(100):
         break
 
 env.render()
+
+
+
+
+-------------------------------------
+
+""" for _ in range(math.ceil(2*24*60*60/env.dt)):
+    # Try: zero input (coast)
+    action = np.array([0.0, 0.0, -1.0, 1])
+    
+    # Or random thrust
+    # action = env.action_space.sample()
+
+    obs, reward, done, _ = env.step(action)
+    if done:
+        break
+
+env.plot_trajectory()
+env.plot_xyz_trajectory() """
