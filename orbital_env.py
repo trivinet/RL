@@ -15,12 +15,12 @@ class OrbitalEnv(gym.Env):
         
         # Constants
         self.mu = 398600.4418  # km^3/s^2, Earth's gravitational parameter
-        self.T_max = 1e-6   # km/s^2, max thrust acceleration
+        self.T_max = 5e-6   # km/s^2, max thrust acceleration
         self.mass_initial = 500.0  # kg
         self.dt = 60.0         # seconds per step
-        self.include_j2 = True
+        self.include_j2 = False
 
-        self.use_rk = True  # Toggle RK integration
+        self.use_rk = False  # Toggle RK integration
 
         # Observation space: scaled Keplerian elements + mass ratio
         self.observation_space = spaces.Box(low=-1, high=1, shape=(7,), dtype=np.float32)
@@ -66,10 +66,27 @@ class OrbitalEnv(gym.Env):
         return np.array([a/10000, e, i/np.pi, raan/(2*np.pi), argp/(2*np.pi), v/(2*np.pi), m/self.mass_initial])
 
     def _compute_reward(self, state):
-        a, e, i, raan, argp, *_ = state
-        alpha = np.array([a, e, i, raan, argp])
-        kalpha = np.array([1e-6, 2, 0.1, 0.1, 0.1])
-        return -np.sum(kalpha * np.abs(alpha - self.goal))
+      a, e, i, raan, argp, *_ = state
+      goal = self.goal
+
+      # Normalize differences
+      da = abs(a - goal[0]) / 1000         # km-scale
+      de = abs(e - goal[1])
+      di = abs(i - goal[2]) / np.pi        # normalize radians
+      draan = abs(raan - goal[3]) / (2*np.pi)
+      dargp = abs(argp - goal[4]) / (2*np.pi)
+
+      # Orbital state reward (negative sum of normalized errors)
+      orbital_reward = -(0.5 * da + 2 * de + 1 * di + 0.5 * draan + 0.5 * dargp)
+
+      # Optional: penalize mass loss (reward conserving fuel)
+      m = state[-1]
+      mass_penalty = -0.01 * (self.mass_initial - m)
+
+      # Optional: penalize time (to encourage faster convergence)
+      time_penalty = -0.0001 * len(self.trajectory)
+
+      return orbital_reward + mass_penalty + time_penalty
 
     def _gauss_rhs(self, t, state, a_rsw):
         a, e, i, raan, argp, v, m = state
@@ -111,7 +128,7 @@ class OrbitalEnv(gym.Env):
       sol = solve_ivp(self._gauss_rhs, [0, self.dt], state, args=(a_rsw,), method = 'RK45')
       return sol.y[:, -1]
 
-    def keplerian_to_cartesian(self, a, e, i, raan, argp, v):
+    def _keplerian_to_cartesian(self, a, e, i, raan, argp, v):
       # 1. Compute perifocal position and velocity
       p = a * (1 - e**2)
       r = p / (1 + e * np.cos(v))
@@ -156,7 +173,7 @@ class OrbitalEnv(gym.Env):
       traj = np.array(self.trajectory)
       r_eci_all = []
       for state in traj:
-          r_eci, _ = self.keplerian_to_cartesian(*state[:6])
+          r_eci, _ = self._keplerian_to_cartesian(*state[:6])
           r_eci_all.append(r_eci)
       r_eci_all = np.array(r_eci_all)
 
