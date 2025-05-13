@@ -9,15 +9,15 @@ from mpl_toolkits.mplot3d import Axes3D
 J2 = 1.08263e-3
 R_EARTH = 6378.137
 
-class OrbitalEnv(gym.Env):
+class OrbitalEnv2D(gym.Env):
     def __init__(self):
         super().__init__()
-        
+        self.final_t = 5 # days
         # Constants
         self.mu = 398600.4418  # km^3/s^2, Earth's gravitational parameter
-        self.T_max = 10e-6   # km/s^2, max thrust acceleration
+        self.T_max = 5e-6   # km/s^2, max thrust acceleration
         self.mass_initial = 500.0  # kg
-        self.dt = 60.0         # seconds per step
+        self.dt = 10.0         # seconds per step
         self.include_j2 = False
 
         self.use_rk = True  # Toggle RK integration
@@ -25,24 +25,24 @@ class OrbitalEnv(gym.Env):
         # Observation space: scaled Keplerian elements + mass ratio
         self.observation_space = spaces.Box(low=-1, high=1, shape=(6,), dtype=np.float32)
 
-        # Action space: thrust direction (R, S, W) + throttle (0–1)
-        self.action_space = spaces.Box(low=-1, high=1, shape=(4,), dtype=np.float32)
+        # Action space: thrust direction (R, S) + throttle (0–1)
+        self.action_space = spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
 
-        # Target orbit for reward
-        self.goal = np.array([7500, 0.02, 51*np.pi/180, 120*np.pi/180, 45.0*np.pi/180])  # [a, e, i, raan, argp]
+        # Goal
+        self.goal = np.array([7500, 0.02, 51*np.pi/180, 120*np.pi/180, 45.0*np.pi/180]) # [a, e, i, raan, argp]
 
         # Initial orbit
-        self.state_0 = np.array([7000, 0.02, 51*np.pi/180, 120*np.pi/180, 45.0*np.pi/180, 0.0, self.mass_initial])
+        self.state_0 = np.array([7000, 0.02, 51*np.pi/180, 120*np.pi/180, 45.0*np.pi/180, 0.0, self.mass_initial]) # [a, e, i, raan, argp, v, m]
 
         # K parameters
-        self.k_parameters = np.array([2,1.0,1.0,1.0,1.0]) # only a matters
+        self.k_parameters = np.array([2.0, 0.0, 0.0, 0.0, 0.0])  # only a matters
 
         self.last_throttle = 0
 
         self.state = None  # [a, e, i, raan, argp, v, m]
         self.trajectory = []
         self.actions = []
-            
+    
     def seed(self, seed=None):
         np.random.seed(seed)
 
@@ -54,16 +54,21 @@ class OrbitalEnv(gym.Env):
         return self._get_obs()
 
     def step(self, action):
-        raw_direction = np.array(action[:3])
-        self.last_action = action.copy()
-        throttle = np.clip(action[3], 0.0, 1.0)
-        self.last_throttle = throttle
-        # Normalize direction
-        direction_unit = raw_direction / (np.linalg.norm(raw_direction) + 1e-8)
-        a_rsw = direction_unit * self.T_max * throttle
+        action = np.asarray(action, dtype=np.float32).reshape(-1)  # force 1D array
 
-        # Log original direction and throttle
-        self.actions.append(np.concatenate([raw_direction, [throttle]]))
+        raw_direction = np.array([0.0, action[1]])  # ignore Fr
+        throttle = np.clip(action[2], 0.0, 1.0)
+        self.last_throttle = throttle
+
+        # ✅ Log raw action (what the policy actually chose)
+        # Fw is always 0 — we explicitly include it for plotting consistency
+        self.actions.append(np.array([raw_direction[0], raw_direction[1], 0.0, throttle]))
+
+        # Normalize and apply scaling
+        direction_unit = raw_direction / (np.linalg.norm(raw_direction) + 1e-8)
+        a_rsw = np.array([direction_unit[0], direction_unit[1], 0.0]) * self.T_max * throttle
+
+        assert abs(a_rsw[2]) < 1e-8, f"Fw component is not zero: {a_rsw[2]}"
 
         if self.use_rk:
             self.state = self._rk_integrate(self.state, a_rsw)
@@ -73,15 +78,11 @@ class OrbitalEnv(gym.Env):
         self.trajectory.append(self.state.copy())
         reward = self._compute_reward(self.state)
 
-        # --- Termination conditions ---
-        max_steps = int((10*24*60*60)/self.dt) # 10 days
-        state_diff = np.linalg.norm(self.state[:5] - self.goal)
-
-        """ state_diff < 1e-3                     # Reached goal """
+        max_steps = int((self.final_t * 24 * 60 * 60) / self.dt)
         done = (
-          self.state[-1] <= 0                   # Ran out of fuel
-          or len(self.trajectory) >= max_steps  # Max time exceeded
-          or self.steps_in_goal >= 100          # Reached goal for enough time
+            self.state[-1] <= 0
+            or len(self.trajectory) >= max_steps
+            or self.steps_in_goal >= 100
         )
 
         return self._get_obs(), reward, done, {}
@@ -91,35 +92,51 @@ class OrbitalEnv(gym.Env):
         return np.array([a/10000, e, i/np.pi, raan/(2*np.pi), argp/(2*np.pi), m/self.mass_initial])
 
     def _compute_reward(self, state):
-        orbital_state = state[:5]  # [a, e, i, raan, argp]
+      a, e, i, raan, argp, *_ = state
+      goal = self.goal
+      max_steps = int((self.final_t*24*60*60)/self.dt)
+      # Normalize differences
+      """ da = abs(a - goal[0]) / 1000         # km-scale
+      de = abs(e - goal[1])
+      di = abs(i - goal[2]) / np.pi        # normalize radians
+      draan = abs(raan - goal[3]) / (2*np.pi)
+      dargp = abs(argp - goal[4]) / (2*np.pi)
 
-        # Normalization factors for each orbital element
-        norm_factors = np.array([10000, 1.0, np.pi, 2*np.pi, 2*np.pi])
-        error = np.abs(orbital_state - self.goal) / norm_factors
+      [ka, ke, ki, kraan, kargp] = self.k_parameters
 
-        # Weighted normalized error penalty
-        reward = -np.sum(self.k_parameters * error)
+      # Orbital state reward (negative sum of normalized errors)
+      orbital_reward = -(ka * da + ke * de + ki * di + kraan * draan + kargp * dargp) """
 
-        # Bonus for being close to goal
-        if np.all(error < np.array([0.001, 0.001, 0.01, 0.01, 0.01])):
-            reward += 1000.0
-            self.steps_in_goal += 1
-        else:
-            self.steps_in_goal = 0
+      da = abs(a - goal[0]) / 1000  # km-scale
+      orbital_reward = -100.0 * da
 
-        # Encourage efficient thrusting (penalize unnecessary use)
-        penalty = 0.05 * self.last_throttle * np.sum(error)
-        reward -= penalty
+      # Optional: penalize mass loss (reward conserving fuel)
+      m = state[-1]
+      """ mass_penalty = -0.0001 * (self.mass_initial - m) """
 
-        # Estimate how useful this thrust was (example: reward positive Fs when raising 'a')
-        if self.state[0] < self.goal[0]:  # If a is still below target
-            reward += 0.2 * (self.last_throttle * self.last_action[1])  # Fs = action[1]
+      # Optional: penalize time (to encourage faster convergence)
+      """ time_penalty = -0.001 * len(self.trajectory) """
 
-        # Small incentive to act (avoids always idling)
-        reward += 0.05 * self.last_throttle
+      # Goal band enforcement
+      goal_band = 10 # 10 km tolerance
+      goal_a_min = goal[0] - goal_band
+      goal_a_max = goal[0] + goal_band
 
-        return reward
+      if goal_a_min <= a <= goal_a_max:
+        """ goal_reward = +10.0 * (1 - len(self.trajectory) / max_steps)  # bigger bonus if reached early """
+        goal_reward = 50.0  # huge reward on success
+        self.steps_in_goal += 1
+      else:
+        goal_reward = 0.0
 
+        if hasattr(self, "steps_in_goal") and self.steps_in_goal > 0:
+          goal_reward -= 5.0 # penalize for leaving the goal after reward
+          self.steps_in_goal = 0 # reset
+
+      """ throttle_penalty = -0.2 * (1 - self.last_throttle) # penalize low throttle """
+      throttle_reward = +0.2* self.last_throttle # encourage thrust
+
+      return orbital_reward + mass_penalty + time_penalty + goal_reward + throttle_reward #+ throttle_penalty
 
     def _gauss_rhs(self, t, state, a_rsw):
         a, e, i, raan, argp, v, m = state
