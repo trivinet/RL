@@ -1,0 +1,56 @@
+
+- Evaluating model: 01t_00m
+- Model 01t_00m:
+  Success rate:  100.00% (100/100)
+  Avg a_error:   8.62 km
+  Avg steps:     3915.7
+  Avg fuel used: 4.11 kg
+
+- Evaluating model: 01t_05m
+- Model 01t_05m:
+  Success rate:  100.00% (100/100)
+  Avg a_error:   7.71 km
+  Avg steps:     6115.1
+  Avg fuel used: 2.75 kg
+
+- Evaluating model: 01t_10m
+- Model 01t_10m:
+  Success rate:  100.00% (100/100)
+  Avg a_error:   9.50 km
+  Avg steps:     10346.1
+  Avg fuel used: 2.70 kg
+
+- Evaluating model: 01t_15m
+- Model 01t_15m:
+  Success rate:  37.00% (37/100)
+  Avg a_error:   202.90 km
+  Avg steps:     13436.3
+  Avg fuel used: 1.77 kg
+
+- Evaluating model: 03t_00m
+- Model 03t_00m:
+  Success rate:  100.00% (100/100)
+  Avg a_error:   4.33 km
+  Avg steps:     2020.3
+  Avg fuel used: 8.32 kg
+
+- Evaluating model: 03t_05m
+- Model 03t_05m:
+  Success rate:  100.00% (100/100)
+  Avg a_error:   8.23 km
+  Avg steps:     3501.2
+  Avg fuel used: 6.23 kg
+
+- Evaluating model: 03t_10m
+- Model 03t_10m:
+  Success rate:  87.00% (87/100)
+  Avg a_error:   14.40 km
+  Avg steps:     3800.2
+  Avg fuel used: 3.52 kg
+
+- Evaluating model: 03t_15m
+- Model 03t_15m:
+  Success rate:  50.00% (50/100)
+  Avg a_error:   12.54 km
+  Avg steps:     8209.5
+  Avg fuel used: 2.66 kg

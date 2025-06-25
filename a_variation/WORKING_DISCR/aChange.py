@@ -2,11 +2,11 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.env_checker import check_env
-from orbital_envCont import OrbitalEnvCont  # adjust import if needed
+from orbital_envDiscr import OrbitalEnvDiscr  # adjust import if needed
 import numpy as np
 
-""" log_dir = "./ppo_cont"  # or any other path
-raw_env = OrbitalEnvCont()
+log_dir = "./ppo_logs_discr"  # or any other path
+raw_env = OrbitalEnvDiscr()
 check_env(raw_env)  # ✅ Check raw, unwrapped env
 
 env = DummyVecEnv([lambda: Monitor(raw_env)])  # Wrap after check
@@ -27,15 +27,15 @@ model = PPO(
     ent_coef=0.01
 )
 
-model.learn(total_timesteps=2_000_000, tb_log_name="ppo_cont_15t_0m")
-model.save("ppo_cont_15t_0m")
-env.close()
- """
-env = OrbitalEnvCont(timepenalty=0.01,masspenalty=5)
-model = PPO.load("ppo_01t_05m")
+model.learn(total_timesteps=500_000, tb_log_name="ppo_discr")
+model.save("ppo_discr_best")
+
+""" env = OrbitalEnvDiscr()
+model = PPO.load("ppo_discr")
 done = False
 env.episode_counter += 1
 obs, _ = env.reset()
+
 
 print("Initial state:")
 print(f"a={env.state[0]:.2f} km, e={env.state[1]:.4f}, i={np.degrees(env.state[2]):.2f}°, RAAN={np.degrees(env.state[3]):.2f}°, argp={np.degrees(env.state[4]):.2f}°, v={np.degrees(env.state[5]):.2f}°, m={env.state[6]:.2f} kg")
@@ -52,9 +52,7 @@ while not done:
 print("\nFinal state:")
 print(f"a={env.state[0]:.2f} km, e={env.state[1]:.4f}, i={np.degrees(env.state[2]):.2f}°, RAAN={np.degrees(env.state[3]):.2f}°, argp={np.degrees(env.state[4]):.2f}°, v={np.degrees(env.state[5]):.2f}°, m={env.state[6]:.2f} kg")
 
-print(f"final state achieved in {len(env.trajectory)*env.dt}s or {len(env.trajectory)*env.dt/(24*60*60)}days")
-
 
 env.plot_trajectory()
-env.plot_orbit_3d(title='Full 3D Orbit')
-env.plot_actions()
+env.plot_xyz_trajectory()
+env.plot_actions() """
